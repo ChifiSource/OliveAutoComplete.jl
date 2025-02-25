@@ -1,0 +1,10 @@
+name = "OliveAutoComplete"
+uuid = "b9312bd6-fe06-412b-9215-2c85cf0180df"
+authors = ["emmac "]
+version = "0.1.0"
+
+[deps]
+Olive = "724ecaf6-c7a0-4c22-b37e-0bb7b4193da8"
+
+[compat]
+Olive = "0.0.93"
