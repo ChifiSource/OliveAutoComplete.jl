@@ -14,6 +14,12 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         callback_comp::Component = cm["cell$(cell.id)"]
         
         curr::String = callback_comp["text"]
+        if curr[end] == '\n'
+            if curr == "\n"
+                return
+            end
+            curr = curr[1:end - 1]
+        end
         last_n::Int64 = parse(Int64, callback_comp["caret"])
         n::Int64 = length(curr)
         if last_n < n 
@@ -28,7 +34,7 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             @warn "last_n > n :o"
             throw("last_n: $(last_n), `n`: $n")
         end
-        previous_line_i = findprev("\n", curr, last_n - 1)
+        previous_line_i = findprev("\n", curr, last_n)
         if isnothing(previous_line_i)
             @warn "no previous line"
             previous_line_i = 1
@@ -42,9 +48,9 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         contains_end = ~(isnothing(findfirst("end", line_slice)))
         indentation_level = findlast(c -> c == ' ', line_slice)
         if ~(isnothing(indentation_level))
-            indentation_level = minimum(indentation_level)
+            indentation_level = minimum(indentation_level) - 1
         end
-        level_check = findfirst(c -> c != ' ', line_slice)
+        level_check = findfirst(c -> c != ' ', replace(line_slice, "\n" => ""))
         if isnothing(level_check)
             level_check = length(line_slice)
         else
@@ -57,9 +63,9 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         if ~(indent_level)
             msg = ""
             if isnothing(indentation_level)
-                msg = "no indentation level"
+                msg = "no indentation level $indentation_level $level_check"
             elseif ~(indentation_level[end] > 3)
-                msg = "indentation level not > 3"
+                msg = "indentation level not > 3 $indentation_level"
             else
                 msg = "failed level check: " * string(indentation_level) * " | " * string(level_check)
             end
@@ -87,6 +93,7 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             @info string(last_n + 5 + indentation_level)
             cm["cell$(cell.id)"] = "caret" => position + 1
             focus!(cm, "cell$(cell.id)")
+            @info "set cursor pos to $position"
             Components.set_textdiv_cursor!(cm, "cell$(cell.id)", position)
         elseif contains_end && indent_level
             indentation_level -= 4
@@ -107,9 +114,9 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             cell.source = res
             @info replace(cell.source, " " => "&nbsp;")
             set_text!(cm, "cell$(cell.id)", replace(cell.source, " " => "&nbsp;"))
-            cm["cell$(cell.id)"] = "caret" => string(last_n + indentation_level + 1)
+            cm["cell$(cell.id)"] = "caret" => string(last_n + indentation_level)
             focus!(cm, "cell$(cell.id)")
-            Components.set_textdiv_cursor!(cm, "cell$(cell.id)", last_n + indentation_level)
+            Components.set_textdiv_cursor!(cm, "cell$(cell.id)", last_n + indentation_level - 1)
         end
     end
 end
