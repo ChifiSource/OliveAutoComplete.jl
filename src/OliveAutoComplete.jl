@@ -7,10 +7,9 @@ using Olive.ToolipsSession
 
 indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "do", "macro")
 
-# TODO This will be part of `Olive` auto-complete instead.
 function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
     cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
-    ToolipsSession.bind(c, cm, component, "Enter", on = :up) do cm::ComponentModifier
+    ToolipsSession.bind(c, cm, component, "Enter", on = :up, prevent_default = true) do cm::ComponentModifier
         callback_comp::Component = cm["cell$(cell.id)"]
         
         curr::String = callback_comp["text"]
@@ -29,7 +28,6 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         @info "(debug messages)"
         if last_n <= n
             @warn replace(curr[1:last_n], " " => "-", "\n" => "|||") * "|CURSOR|" * replace(curr[last_n + 1:end], " " => "-", "\n" => "|||")
-
         else
             @warn "last_n > n :o"
             throw("last_n: $(last_n), `n`: $n")
@@ -46,28 +44,24 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         line_slice = curr[previous_line_i:last_n]
         contains_indent::Bool = ~isnothing(findfirst(x -> contains(line_slice, x), indent_after))
         contains_end = ~(isnothing(findfirst("end", line_slice)))
-        indentation_level = findlast(c -> c == ' ', line_slice)
-        if ~(isnothing(indentation_level))
+        indentation_level = findfirst(c -> c != ' ', replace(line_slice, "\n" => ""))
+        if isnothing(indentation_level)
+            indentation_level = length(replace(line_slice, "\n" => ""))
+        else
             indentation_level = minimum(indentation_level) - 1
         end
-        level_check = findfirst(c -> c != ' ', replace(line_slice, "\n" => ""))
-        if isnothing(level_check)
-            level_check = length(line_slice)
-        else
-            level_check = maximum(level_check)
-        end
-        @warn "current line: \n" * replace(line_slice, " " => "-")
+        @warn "current line: \n" * replace(line_slice, " " => "-", "\n" => "|||")
         @info indentation_level
-        indent_level = ~(isnothing(indentation_level)) && indentation_level > 3 && indentation_level <= level_check
+        indent_level = ~(isnothing(indentation_level)) && indentation_level > 3 && replace(line_slice, "\n" => "")[1] == ' '
         @info "continue indent?: " * string(indent_level)
         if ~(indent_level)
             msg = ""
             if isnothing(indentation_level)
-                msg = "no indentation level $indentation_level $level_check"
+                msg = "no indentation level $indentation_level"
             elseif ~(indentation_level[end] > 3)
                 msg = "indentation level not > 3 $indentation_level"
             else
-                msg = "failed level check: " * string(indentation_level) * " | " * string(level_check)
+                msg = "failed level check: " * string(indentation_level) 
             end
             @warn "reason for no continued indent: " * msg
         end
@@ -117,6 +111,12 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             cm["cell$(cell.id)"] = "caret" => string(last_n + indentation_level)
             focus!(cm, "cell$(cell.id)")
             Components.set_textdiv_cursor!(cm, "cell$(cell.id)", last_n + indentation_level - 1)
+        else
+            cell.source = curr[1:last_n] * "\n" * curr[last_n + 1:length(curr)]
+            set_text!(cm, "cell$(cell.id)", replace(cell.source, " " => "&nbsp;"))
+            cm["cell$(cell.id)"] = "caret" => string(last_n)
+            focus!(cm, "cell$(cell.id)")
+            Components.set_textdiv_cursor!(cm, "cell$(cell.id)", last_n)
         end
     end
 end
