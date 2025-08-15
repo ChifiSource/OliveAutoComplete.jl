@@ -9,16 +9,18 @@ indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "d
 
 function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
     cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
-    ToolipsSession.bind(c, cm, component, "Enter", on = :up, prevent_default = true) do cm::ComponentModifier
+    ToolipsSession.bind(c, cm, component, "Enter", on = :up, prevent_default = false) do cm::ComponentModifier
         callback_comp::Component = cm["cell$(cell.id)"]
         
         curr::String = callback_comp["text"]
+        #==
         if curr[end] == '\n'
             if curr == "\n"
                 return
             end
             curr = curr[1:end - 1]
         end
+        ==#
         last_n::Int64 = parse(Int64, callback_comp["caret"])
         n::Int64 = length(curr)
         @info "(debug messages)"
@@ -28,6 +30,8 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             @warn "last_n > n :o"
             throw("last_n: $(last_n), `n`: $n")
         end
+        @warn replace(curr[last_n:last_n], "\n" => "YES")
+        @warn replace(curr[last_n:last_n], "\n" => "YES", " " => "SPACE")
         previous_line_i = findprev("\n", curr, last_n)
         if isnothing(previous_line_i)
             @warn "no previous line"
@@ -115,19 +119,6 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             cm["cell$(cell.id)"] = "caret" => string(last_n + indentation_level)
             focus!(cm, "cell$(cell.id)")
             Components.set_textdiv_cursor!(cm, "cell$(cell.id)", last_n + indentation_level - length(findall("\n", curr)))
-        else
-            @warn "performed final opt"
-            if last_n == n
-                cell.source = curr[1:last_n] * "\n"
-            else
-                cell.source = curr[1:last_n] * "\n" * curr[last_n + 1:end]
-            end
-            set_text!(cm, "cell$(cell.id)", replace(cell.source, " " => "&nbsp;", "\n" => "<br>"))
-            cm["cell$(cell.id)"] = "caret" => string(last_n + 1)
-            @warn last_n + 1
-            @warn replace(cell.source, "\n" => "!N")
-            focus!(cm, "cell$(cell.id)")
-            Components.set_textdiv_cursor!(cm, "cell$(cell.id)", last_n - length(findall("\n", curr)))
         end
     end
 end
