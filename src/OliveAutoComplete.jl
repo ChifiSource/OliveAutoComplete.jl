@@ -9,6 +9,13 @@ indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "d
 
 function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
     cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
+    suggest_box = div("autobox")
+    style!(suggest_box, "background-color" => "white", "border" => "2px solid #1e1e1e", 
+        "border-radius" => 3px)
+    insert!(component[:children], 2, suggest_box)
+    ToolipsSession.bind(km, " ", :shift, prevent_default = true) do cm::ComponentModifier
+        alert!(cm, "worked")
+    end
     ToolipsSession.bind(c, cm, component, "Enter", on = :up, prevent_default = false) do cm::ComponentModifier
         callback_comp::Component = cm["cell$(cell.id)"]
         
