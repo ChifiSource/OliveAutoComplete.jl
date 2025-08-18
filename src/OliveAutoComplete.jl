@@ -96,6 +96,62 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     curr::String = callback_comp["text"]
     last_n::Int = parse(Int, callback_comp["caret"])
     n::Int = length(curr)
+    if ~(haskey(proj.data, :completes))
+        push!(proj.data, :autocomp => String[])
+        push!(proj.data, :autocompT => String[])
+        push!(proj.data, :autoc => 0)
+        @async begin
+            mod = proj[:mod]
+            for name in names(mod, all = true)
+                T = getfield(mod, name)
+                name = string(name)
+                if contains(name, "#")
+                    continue
+                end
+                if T isa Type
+                    push!(proj.data[:autocompT], name)
+                else
+                    push!(proj.data[:autocomp], name)
+                end
+            end
+        end
+    elseif proj.data[:autoc] > 7
+        @async begin
+            proj.data[:autoc] = 0
+            proj.data[:autocomp] = String[]
+            proj.data[:autocompT] = String[]
+            mod = proj[:mod]
+            for name in names(mod, all = true)
+                T = getfield(mod, name)
+                name = string(name)
+                if contains(name, "#")
+                    continue
+                end
+                if T isa Type
+                    push!(proj.data[:autocompT], name)
+                else
+                    push!(proj.data[:autocomp], name)
+                end
+            end
+        end
+    end
+    if n < 2
+        return
+    end
+    @info proj.data[:autocomp]
+    seps = (',', ' ', ':', ';', '\n', '(', '[')
+    lastsep = findprev(c -> c in seps, curr, last_n)
+    if isnothing(lastsep)
+        lastsep = 1
+    else
+        lastsep = minimum(lastsep)
+    end
+    curr_str = curr[lastsep:last_n]
+    curr_n = length(curr_str)
+    autocomp = proj[:autocomp]
+    found_comp = findall(x -> length(x) > curr_n && x[1:curr_n] == curr_str, autocomp)
+    found_t = findall(x -> length(x) > curr_n && x[1:curr_n] == curr_str, autocomp)
+    @info [autocomp[e] for e in found_comp]
 end
     
 
