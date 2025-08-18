@@ -1,5 +1,5 @@
 module OliveAutoComplete
-import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project, on_code_highlight, olive_notify!
+import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project, on_code_highlight, olive_notify!, on_code_evaluate
 using Olive.Components
 using Olive.Toolips
 using Olive.Toolips.Components
@@ -9,14 +9,54 @@ indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "d
 
 function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
     cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
-    suggest_box = div("autobox$(cell.id)", selection = "0")
+    suggest_box = div("autobox$(cell.id)", selection = "1")
     style!(component[:children][1], "margin" => 0px, "padding" => 0percent)
     style!(suggest_box, "background-color" => "white", "border" => "2px solid #3D3D3D", 
         "border-radius" => 3px, "margin-left" => 28pt, "width" => 85percent, "border-top" => 0px, "border-top-left-radius" => 0px, "border-top-right-radius" => 0px, 
         "min-height" => 16pt)
     insert!(component[:children], 2, suggest_box)
     ToolipsSession.bind(km, " ", :shift, prevent_default = true) do cm::ComponentModifier
-        alert!(cm, "will fill currently selected complete")
+        selection = cm[suggest_box]["selection"]
+        callback_comp::Component = cm["cell$(cell.id)"]
+        curr::String = callback_comp["text"]
+        last_n::Int = parse(Int, callback_comp["caret"])
+        selcompn = "$(cell.id)acopt$selection"
+        n = length(curr)
+        if  ~(selcompn in cm) || n < 1
+            return
+        end
+        txt = cm[selcompn]["text"]
+        # got all data, now we set the new str:
+        seps = (',', ' ', ':', ';', '\n', '(', '[')
+        lastsep = findprev(c -> c in seps, curr, last_n)
+        nextsep = findnext(c -> c in seps, curr, last_n)
+        if isnothing(nextsep)
+            nextsep = n
+        end
+        curr = if isnothing(lastsep)
+            if last_n == n
+                curr = txt
+            else
+                curr = txt * curr[nextsep:end]
+            end
+            lastsep = 1
+            curr
+        elseif last_n == n
+            curr[1:lastsep] * txt
+        else
+            curr[1:lastsep] * txt * curr[nextsep:end]
+        end
+        if lastsep != 1
+            lastsep += 1
+        end
+        if nextsep != n
+            nextsep -= 1
+        end
+        slicelen = nextsep - lastsep
+        newpos = last_n + length(txt) - slicelen
+        set_text!(cm, "cell$(cell.id)", replace(curr, " " => "&nbsp;", "\n" => "<br>"))
+        cm["cell$(cell.id)"] = "caret" => string(newpos)
+        Components.set_textdiv_cursor!(cm, "cell$(cell.id)", newpos + 1)
     end
     if ~(contains(cell.source, "\n") || contains(cell.source, "<br>"))
         interior = component[:children]["cellinterior$(cell.id)"]
@@ -51,8 +91,8 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         contains_indent = any(contains(prev_line, x) for x in indent_after)
         indent_spaces = length(match(r"^ *", prev_line).match)
         cur_indent_spaces = length(match(r"^ *", current_line).match)
-        current_line_has_end = occursin(r"\bend\b", current_line)
-
+        current_line_has_end = occursin(r"\bend\b", current_line) || occursin(r"\belseif\b", current_line) || occursin(r"\belse\b", current_line)
+        
         new_indent::Int64 = indent_spaces
         if contains_indent && ~(current_line_has_end)
             new_indent += 4
@@ -65,8 +105,6 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
             end
             prev_indent_spaces = length(match(r"^ *", prev_line).match)
             if cur_indent_spaces == prev_indent_spaces && cur_indent_spaces > 3
-                @warn prev_line
-
                 # Dedent "end" by stripping up to 4 spaces
                 stripped_line = replace(current_line, r"^ {0,4}" => "")
                 lines[current_line_idx] = stripped_line
@@ -97,30 +135,10 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     curr::String = callback_comp["text"]
     last_n::Int = parse(Int, callback_comp["caret"])
     n::Int = length(curr)
-    if ~(haskey(proj.data, :completes))
-        push!(proj.data, :autocomp => String["function", "end", "begin", "mutable", "struct", "abstract"])
+    if ~(haskey(proj.data, :autocomp))
+        push!(proj.data, :autocomp => String["end", "in", indent_after ...])
         push!(proj.data, :autocompT => String[])
-        push!(proj.data, :autoc => 0)
         @async begin
-            mod = proj[:mod]
-            for name in names(mod, all = true)
-                T = getfield(mod, name)
-                name = string(name)
-                if contains(name, "#")
-                    continue
-                end
-                if T isa Type
-                    push!(proj.data[:autocompT], name)
-                else
-                    push!(proj.data[:autocomp], name)
-                end
-            end
-        end
-    elseif proj.data[:autoc] > 7
-        @async begin
-            proj.data[:autoc] = 0
-            proj.data[:autocomp] = String["function", "end", "begin", "mutable", "struct", "abstract"]
-            proj.data[:autocompT] = String[]
             mod = proj[:mod]
             for name in names(mod, all = true)
                 T = getfield(mod, name)
@@ -145,12 +163,12 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
         lastsep = 1
     else
         lastsep = minimum(lastsep)
+        lastsep += 1
     end
-    @info lastsep
-    curr_str = curr[lastsep + 1:last_n]
+    curr_str = curr[lastsep:last_n]
     curr_n = length(curr_str)
-    autocomp = proj[:autocomp]
-    autocomp_t = proj[:autocompT]
+    autocomp = proj.data[:autocomp]
+    autocomp_t = proj.data[:autocompT]
     found_comp = findall(x -> contains(x, curr_str), autocomp)
     found_t = findall(x -> contains(x, curr_str), autocomp_t)
     results = String[]
@@ -162,19 +180,48 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     end
     n = length(results)
     if n == 0
-        @warn "returned, 0 results: $curr_str"
-        @warn autocomp
+        set_text!(cm, "autobox$(cell.id)", "")
         return
     end
     max_num = 6
     if n < 6
         max_num = n
     end
+    selected_comp = cm["autobox$(cell.id)"]["selection"]
     comps = [begin
-        a(text = results[rand(1:n)])
+        comp = a("$(cell.id)acopt$e", text = results[rand(1:n)])
+        style!(comp, "color" => "#cdd2d4", "padding" => 5px, "font-size" => 15pt, "border-radius" => 2px)
+        if string(e) == selected_comp
+            style!(comp, "background-color" => "#2e2a28", "border" => "2px solid #40a35f")
+        else
+            style!(comp, "background-color" => "#82817f")
+        end
+        comp::Component{:a}
     end for e in 1:max_num]
     set_children!(cm, "autobox$(cell.id)", comps)
 end
-    
+
+function on_code_evaluate(c::Connection, cm::ComponentModifier, ext::OliveExtension{:suggestions}, cell::Cell{:code}, proj::Project{<:Any})
+    load_suggestions!(proj)
+end
+
+function load_suggestions!(proj::Project{<:Any})
+    @async begin
+        mod = proj[:mod]
+        for name in names(mod, all = true)
+            T = getfield(mod, name)
+            name = string(name)
+            if contains(name, "#")
+                continue
+            end
+            if T isa Type && ~(name in proj.data[:autocompT])
+                push!(proj.data[:autocompT], name)
+            elseif  ~(name in proj.data[:autocomp])
+                push!(proj.data[:autocomp], name)
+            end
+        end
+    end
+end
+
 
 end # module OliveAutoComplete
