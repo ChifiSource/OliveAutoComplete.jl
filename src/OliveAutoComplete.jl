@@ -1,5 +1,5 @@
 module OliveAutoComplete
-import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project
+import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project, on_code_highlight, olive_notify!
 using Olive.Components
 using Olive.Toolips
 using Olive.Toolips.Components
@@ -29,9 +29,7 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         curr::String = callback_comp["text"]
         last_n::Int = parse(Int, callback_comp["caret"])
         n::Int = length(curr)
-        if n == 0
-            return
-        elseif n < 2
+        if n in (0, 2, 1) || last_n < 3
             return
         end
         # safety
@@ -61,15 +59,23 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         end
         # rule 2: if current line contains "end" and is at same indent as prev
         newpos = nothing
-        if occursin(r"\bend\b", current_line)      
+        if current_line_has_end
+            if prev_line == current_line && length(lines) > 3
+                prev_line = lines[end - 2]
+            end
             prev_indent_spaces = length(match(r"^ *", prev_line).match)
-            if cur_indent_spaces == indent_spaces && cur_indent_spaces > 3
-                @warn current_line
+            if cur_indent_spaces == prev_indent_spaces && cur_indent_spaces > 3
                 @warn prev_line
+
                 # Dedent "end" by stripping up to 4 spaces
                 stripped_line = replace(current_line, r"^ {0,4}" => "")
                 lines[current_line_idx] = stripped_line
-                new_indent -= 4
+                curr = replace(join(lines, "<br>"), " " => "&nbsp;")
+                set_text!(cm, "cell$(cell.id)", curr)
+                newpos = last_n - 4
+                cm["cell$(cell.id)"] = "caret" => string(newpos)
+                Components.set_textdiv_cursor!(cm, "cell$(cell.id)", newpos + 1)
+                return
             end
         end
         newline_indent = "<br>" * " "^new_indent
@@ -84,6 +90,13 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
     end
 end
 
+
+function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExtension{:autocomplete}, cell::Cell{:code}, proj::Project{<:Any})
+    callback_comp::Component = cm["cell$(cell.id)"]
+    curr::String = callback_comp["text"]
+    last_n::Int = parse(Int, callback_comp["caret"])
+    n::Int = length(curr)
+end
     
 
 end # module OliveAutoComplete
