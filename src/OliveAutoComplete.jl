@@ -5,11 +5,11 @@ using Olive.Toolips
 using Olive.Toolips.Components
 using Olive.ToolipsSession
 
-indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "do", "macro")
+indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "do", "macro", "quote")
 
 function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
     cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
-    suggest_box = div("autobox")
+    suggest_box = div("autobox$(cell.id)", selection = "0")
     style!(component[:children][1], "margin" => 0px, "padding" => 0percent)
     style!(suggest_box, "background-color" => "white", "border" => "2px solid #3D3D3D", 
         "border-radius" => 3px, "margin-left" => 28pt, "width" => 85percent, "border-top" => 0px, "border-top-left-radius" => 0px, "border-top-right-radius" => 0px, 
@@ -83,10 +83,11 @@ function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{
         res_safe = replace(res, " " => "&nbsp;", "\n" => "<br>")
         newpos = last_n + 1 + new_indent
         # update component
-        @info res_safe
         set_text!(cm, "cell$(cell.id)", res_safe)
         cm["cell$(cell.id)"] = "caret" => string(newpos)
         Components.set_textdiv_cursor!(cm, "cell$(cell.id)", newpos + 1)
+        # for suggest box:
+        set_text!(cm, "autobox$(cell.id)", "")
     end
 end
 
@@ -97,7 +98,7 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     last_n::Int = parse(Int, callback_comp["caret"])
     n::Int = length(curr)
     if ~(haskey(proj.data, :completes))
-        push!(proj.data, :autocomp => String[])
+        push!(proj.data, :autocomp => String["function", "end", "begin", "mutable", "struct", "abstract"])
         push!(proj.data, :autocompT => String[])
         push!(proj.data, :autoc => 0)
         @async begin
@@ -118,7 +119,7 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     elseif proj.data[:autoc] > 7
         @async begin
             proj.data[:autoc] = 0
-            proj.data[:autocomp] = String[]
+            proj.data[:autocomp] = String["function", "end", "begin", "mutable", "struct", "abstract"]
             proj.data[:autocompT] = String[]
             mod = proj[:mod]
             for name in names(mod, all = true)
@@ -138,7 +139,6 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     if n < 2
         return
     end
-    @info proj.data[:autocomp]
     seps = (',', ' ', ':', ';', '\n', '(', '[')
     lastsep = findprev(c -> c in seps, curr, last_n)
     if isnothing(lastsep)
@@ -146,12 +146,34 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     else
         lastsep = minimum(lastsep)
     end
-    curr_str = curr[lastsep:last_n]
+    @info lastsep
+    curr_str = curr[lastsep + 1:last_n]
     curr_n = length(curr_str)
     autocomp = proj[:autocomp]
-    found_comp = findall(x -> length(x) > curr_n && x[1:curr_n] == curr_str, autocomp)
-    found_t = findall(x -> length(x) > curr_n && x[1:curr_n] == curr_str, autocomp)
-    @info [autocomp[e] for e in found_comp]
+    autocomp_t = proj[:autocompT]
+    found_comp = findall(x -> contains(x, curr_str), autocomp)
+    found_t = findall(x -> contains(x, curr_str), autocomp_t)
+    results = String[]
+    if length(found_comp) > 0
+        results = [autocomp[e] for e in found_comp]
+    end
+    if length(found_t) > 0
+        results = vcat(results, [autocomp_t[e] for e in found_t])
+    end
+    n = length(results)
+    if n == 0
+        @warn "returned, 0 results: $curr_str"
+        @warn autocomp
+        return
+    end
+    max_num = 6
+    if n < 6
+        max_num = n
+    end
+    comps = [begin
+        a(text = results[rand(1:n)])
+    end for e in 1:max_num]
+    set_children!(cm, "autobox$(cell.id)", comps)
 end
     
 
