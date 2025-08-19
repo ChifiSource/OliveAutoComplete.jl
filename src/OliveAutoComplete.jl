@@ -1,3 +1,22 @@
+"""
+Created in August, 2025 by
+[chifi - an open source software dynasty.](https://github.com/orgs/ChifiSource)
+- This software is MIT-licensed.
+### OliveAutoComplete
+`OliveAutoComplete` provides `Olive` with *fully-featured* autocomplete functionality, including automatic indentation 
+and suggestion autofill.
+##### bindings
+```julia
+# olive extensions:
+on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
+    cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
+on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExtension{:autocomplete}, cell::Cell{:code}, proj::Project{<:Any})
+on_code_evaluate(c::Connection, cm::ComponentModifier, ext::OliveExtension{:suggestions}, cell::Cell{:code}, proj::Project{<:Any})
+
+# internal:
+load_suggestions!(proj::Project{<:Any}, mod::Module = proj[:mod])
+```
+"""
 module OliveAutoComplete
 import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project, on_code_highlight, olive_notify!, on_code_evaluate, OliveBase
 using Olive.Components
