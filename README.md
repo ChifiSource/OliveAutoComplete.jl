@@ -2,6 +2,10 @@
 <img src="https://github.com/ChifiSource/image_dump/raw/main/olive/0.1/extensions/oliveautocomplete.png" width="250"></img>
 </div>
 
+- **note**: this first iteration of `OliveAutoComplete` is most likely *not* unicode-safe.
+- [documentation](https://chifidocs.com/olive/OliveAutoComplete)
+- [olive](https://github.com/ChifiSource/Olive.jl)
+
 `OliveAutoComplete` provides `Olive` with fully-featured *autocomplete* functionality. This includes automatic indentation and code-suggestion autofill. Add the package within your `olive` environment or the environment you run `Olive` from:
 ```julia
 using Pkg
