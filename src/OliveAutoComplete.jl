@@ -1,5 +1,5 @@
 module OliveAutoComplete
-import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project, on_code_highlight, olive_notify!, on_code_evaluate
+import Olive: on_code_build, Cell, ComponentModifier, OliveExtension, Project, on_code_highlight, olive_notify!, on_code_evaluate, OliveBase
 using Olive.Components
 using Olive.Toolips
 using Olive.Toolips.Components
@@ -9,19 +9,44 @@ indent_after = ("begin", "function", "struct", "for", "if", "else", "elseif", "d
 
 function on_code_build(c::Connection, cm::ComponentModifier, oe::OliveExtension{:indent}, 
     cell::Cell{:code}, proj::Project{<:Any}, component::Component{:div}, km::ToolipsSession.KeyMap)
+    if ~(haskey(proj.data, :autocomp))
+        proj.data[:autocomp] = String["function", "end", "begin", "do", "mutable", "struct", "abstract", "quote", "try", "for", "if", "else", "elseif", "macro"]
+        proj.data[:autocompT] = String["Int64", "Float64", "String", "AbstractString", "Vector", "Array"]
+        proj.data[:lastsrc] = ""
+        @async begin
+            add_names!(OliveBase, proj)
+        end
+    end
     suggest_box = div("autobox$(cell.id)", selection = "1")
     style!(component[:children][1], "margin" => 0px, "padding" => 0percent)
     style!(suggest_box, "background-color" => "white", "border" => "2px solid #3D3D3D", 
         "border-radius" => 3px, "margin-left" => 28pt, "width" => 85percent, "border-top" => 0px, "border-top-left-radius" => 0px, "border-top-right-radius" => 0px, 
         "min-height" => 16pt)
     insert!(component[:children], 2, suggest_box)
+    ToolipsSession.bind(km, "ArrowLeft", :shift, prevent_default = true) do cm::ComponentModifier
+        if ~("$(cell.id)acopt1" in cm)
+            return
+        end
+        selection = parse(Int64, cm[suggest_box]["selection"])
+        style!(cm, "$(cell.id)acopt$selection", "background-color" => "#82817f", "border" => "0px solid #ffffff")
+        if selection < 2
+            selection = 6
+        else
+            selection -= 1
+        end
+        if ~("$(cell.id)acopt$selection" in cm)
+            selection = length(findall("$(cell.id)acopt", cm.rootc))
+        end
+        style!(cm, "$(cell.id)acopt$selection", "background-color" => "#2e2a28", "border" => "2px solid #40a35f")
+        cm[suggest_box] = "selection" => string(selection)
+    end
     ToolipsSession.bind(km, "ArrowRight", :shift, prevent_default = true) do cm::ComponentModifier
         if ~("$(cell.id)acopt1" in cm)
             return
         end
         selection = parse(Int64, cm[suggest_box]["selection"])
         style!(cm, "$(cell.id)acopt$selection", "background-color" => "#82817f", "border" => "0px solid #ffffff")
-        if selection > 6
+        if selection == 6
             selection = 1
         else
             selection += 1
@@ -146,14 +171,6 @@ end
 
 
 function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExtension{:autocomplete}, cell::Cell{:code}, proj::Project{<:Any})
-    if ~(haskey(proj.data, :autocomp))
-        proj.data[:autocomp] = String["function", "in", "mutable", "struct", "export", 
-            "begin", "end", "quote", "if", "for", "else", "elseif", "try", 
-            "catch"]
-        proj.data[:autocompT] = String[]
-        proj.data[:lastsrc] = ""
-        @async add_names!(OliveBase, autocomp, autocomp_t)
-    end
     callback_comp::Component = cm["cell$(cell.id)"]
     curr::String = callback_comp["text"]
     proj.data[:lastsrc]
@@ -185,10 +202,10 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     found_t = findall(x -> length(x) > curr_n && x[1:curr_n] == curr_str, autocomp_t)
     results = String[]
     if length(found_comp) > 0
-        results = [autocomp[e] for e in found_comp]
+        push!(results, [autocomp[e] for e in found_comp] ...)
     end
     if length(found_t) > 0
-        results = vcat(results, [autocomp_t[e] for e in found_t])
+        push!(results, [autocomp_t[e] for e in found_t] ...)
     end
     n = length(results)
     if n == 0
@@ -196,10 +213,10 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
         return
     end
     max_num = 6
-    if n < 6
+    if n < max_num
         max_num = n
     end
-    selected_comp = cm["autobox$(cell.id)"]["selection"]
+    selected_comp = parse(Int64, cm["autobox$(cell.id)"]["selection"])
     if selected_comp > max_num
         selected_comp = 1
         cm["autobox$(cell.id)"] = "selection" => "1"
@@ -207,7 +224,7 @@ function on_code_highlight(c::Connection, cm::ComponentModifier, ext::OliveExten
     comps = [begin
         comp = a("$(cell.id)acopt$e", text = results[rand(1:n)])
         style!(comp, "color" => "#cdd2d4", "padding" => 5px, "font-size" => 15pt, "border-radius" => 2px)
-        if string(e) == selected_comp
+        if e == selected_comp
             style!(comp, "background-color" => "#2e2a28", "border" => "2px solid #40a35f")
         else
             style!(comp, "background-color" => "#82817f")
@@ -228,7 +245,7 @@ function on_code_evaluate(c::Connection, cm::ComponentModifier, ext::OliveExtens
     mod = proj[:mod]
     @async begin
         # begin async
-    Toolips.@distributed for position in kwpos
+    for position in kwpos
         namestart = findnext(" ", src, minimum(position))
         if isnothing(namestart)
             continue
@@ -248,7 +265,6 @@ function on_code_evaluate(c::Connection, cm::ComponentModifier, ext::OliveExtens
             if ~(thismod isa Module)
                 continue
             end
-            @info "LOADED COMPLETE FOR $name"
             load_suggestions!(proj, thismod)
         end
     end
@@ -257,28 +273,27 @@ end
 
 function load_suggestions!(proj::Project{<:Any}, mod::Module = proj[:mod])
     try
-    add_names!(mod, proj[:autocomp], proj[:autocompT])
+    add_names!(mod, proj)
     catch e
         throw(e)
     end
 end
 
 
-function add_names!(mod::Module, autocomp::Vector{String}, autocomp_t::Vector{String})
-    Toolips.@distributed for name in names(mod, all = true, imported = true)
+function add_names!(mod::Module, proj::Project{<:Any})
+    autocomp::Vector{String}, autocomp_t::Vector{String} = (proj[:autocomp], proj[:autocompT])
+    for name in names(mod, all = true, imported = true)
         if ~(isdefined(mod, name)) || contains(string(name), "#")
             continue
         end
         T = getfield(mod, name)
         name = string(name)
-        if name in autocomp || name in autocomp_t
-            return
+        if (name in autocomp || name in autocomp_t)
+            continue
         end
         if T isa Type
             push!(autocomp_t,  name)
         elseif T isa Module 
-            @info "T IS A MODULE $T"
-            add_names!(T, autocomp, autocomp_t)
             push!(autocomp, name)
         else
             push!(autocomp, name)
